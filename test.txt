@@ -1,0 +1,4 @@
+# test conf file
+
+patch:1 pcm:test.pcm seq:test.seq bpm:128.1
+patch:2 pcm:test2.pcm seq:test2.seq bpm:170.9
