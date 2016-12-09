@@ -16,7 +16,7 @@ int midi_client::init(device_t* d)
 					uint8_t ch;
 					ch_read(dev_, &ch);
 					port::cmd_t cmd;
-#if defined(__LINUX__)
+#if defined(__linux__)
 #else
 					if (ch == '0') {
 						cmd.tag = port::CHANGE_PROG;
@@ -56,7 +56,7 @@ int midi_client::put(port::cmd_t&& cmd)
 
 device_t* init_midi()
 {
-#if defined(__LINUX__)
+#if defined(__linux__)
 	int err;
 	snd_rawmidi_t* hdlin;
 	snd_rawmidi_t* hdlout;
@@ -80,17 +80,18 @@ device_t* init_midi()
 
 void final_midi(device_t* dev)
 {
-#if defined(__LINUX__)
+#if defined(__linux__)
 	snd_rawmidi_close(dev->hdlin);
 	snd_rawmidi_close(dev->hdlout);
-	dev->hdl = nullptr;
+	dev->hdlin = nullptr;
+	dev->hdlout = nullptr;
 #endif
 	delete dev;
 }
 
 int ch_read(device_t* dev, uint8_t* ch)
 {
-#if defined(__LINUX__)
+#if defined(__linux__)
 	snd_rawmidi_read(dev->hdlin, ch, 1); /* blocking */
 #else
 	while (read(dev->fdin, ch, 1) == EAGAIN) {
@@ -102,7 +103,7 @@ int ch_read(device_t* dev, uint8_t* ch)
 
 int ch_write(device_t* dev, const uint8_t* ch, int cnt)
 {
-#if defined(__LINUX__)
+#if defined(__linux__)
 	snd_rawmidi_write(dev->hdlout, ch, cnt); /* blocking */
 	snd_rawmidi_drain(dev->hdlout);
 #else

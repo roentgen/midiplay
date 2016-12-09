@@ -70,6 +70,7 @@ namespace port {
 		}
 	};
 
+#if defined(__OSX__)
 	template <> class signaling_t< sem_t* > {
 		sem_t* sig_obj_;
 	public:
@@ -109,6 +110,7 @@ namespace port {
 			return err;
 		}
 	};
+#endif
 
 	template < typename L, typename S, typename E > class tsafeque_t {
 		L lock_;

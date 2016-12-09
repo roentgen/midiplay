@@ -3,13 +3,13 @@
 
 #include <stdint.h>
 #include <string>
-#if defined(__LINUX__)
+#if defined(__linux__)
 #include <asoundlib.h>
 #endif
 
 namespace snd {
 	struct device_t {
-#if defined(__LINUX__)
+#if defined(__linux__)
 		snd_pcm_t* hdl;
 #else
 		int fd;

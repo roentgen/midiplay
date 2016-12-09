@@ -13,7 +13,7 @@ namespace port {
 		void* data1;
 	};
 
-#if defined(__LINUX__)
+#if defined(__linux__)
 	typedef tsafeque_t< std::mutex, sem_t, cmd_t > cmdq_t;
 #else
 	typedef tsafeque_t< std::mutex, sem_t*, cmd_t > cmdq_t;

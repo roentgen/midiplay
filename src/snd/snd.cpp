@@ -7,7 +7,7 @@
 namespace snd {
 device_t* init_sound(const std::string& device)
 {
-#if defined(__LINUX__)
+#if defined(__linux__)
 	int err;
 	snd_pcm_t* hdl;
 	err = snd_pcm_open(&hdl, device.c_str(), SND_PCM_STREAM_PLAYBACK, 0);
@@ -41,10 +41,10 @@ device_t* init_sound(const std::string& device)
 
 int send_pcm(device_t* dev, const uint16_t* pcm, int cnt)
 {
-#if defined(__LINUX__)
+#if defined(__linux__)
 	int frames = snd_pcm_writei(dev->hdl, pcm, cnt);
 	if (frames < 0) 
-		frames = snd_pcm_recover(dev->hdl, frams, 0);
+		frames = snd_pcm_recover(dev->hdl, frames, 0);
 	if (frames < 0) {
 		printf("Playback snd device write error:%s\n", snd_strerror(frames));
 		assert(false);
@@ -61,7 +61,7 @@ int send_pcm(device_t* dev, const uint16_t* pcm, int cnt)
 
 void stop_sound(device_t* dev)
 {
-#if defined(__LINUX__)
+#if defined(__linux__)
 	/* nothing to do */
 #else
 	close(dev->fd);
@@ -71,7 +71,7 @@ void stop_sound(device_t* dev)
 	
 void final_sound(device_t* dev)
 {
-#if defined(__LINUX__)
+#if defined(__linux__)
 	snd_pcm_close(dev->hdl);
 	dev->hdl = nullptr;
 #else

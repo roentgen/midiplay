@@ -2,8 +2,9 @@
 #define MIDI_MIDI_HPP__
 
 #include <stdint.h>
+#include <atomic>
 #include "port/cmdq.hpp"
-#if defined(__LINUX__)
+#if defined(__linux__)
 #include <asoundlib.h>
 #endif
 #include <thread>
@@ -11,7 +12,7 @@
 namespace midi {
 
 	struct device_t {
-#if defined(__LINUX__)
+#if defined(__linux__)
 		snd_rawmidi_t* hdlin;
 		snd_rawmidi_t* hdlout;
 #else

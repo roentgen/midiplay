@@ -5,6 +5,7 @@
 #include <regex>
 #include <algorithm>
 #include <thread>
+#include <atomic>
 #include <functional>
 #include <stdlib.h>
 //#include "json/parse.hpp"
@@ -189,7 +190,7 @@ void command_func(std::string basepath)
 			else {
 				break; 
 			}
-#if !defined(__LINUX__)
+#if !defined(__linux__)
 			usleep(500000 - 10000);
 #endif
 		}
@@ -269,7 +270,7 @@ void command_func(std::string basepath)
 
 int main(int argc, char** argv)
 {
-#if defined(__LINUX__)
+#if defined(__linux__)
 	std::string basepath(argv[2]);
 	std::string devicepath = "default";
 #else
