@@ -6,6 +6,7 @@
 #if defined(__LINUX__)
 #include <asoundlib.h>
 #endif
+#include <thread>
 
 namespace midi {
 
@@ -21,8 +22,13 @@ namespace midi {
 	
 	class midi_client {
 		port::cmdq_t q_;
-
+		device_t* dev_;
+		std::atomic< bool > listening_;
+		std::thread thr_;
 	public:
+		midi_client() : dev_(nullptr), listening_(false) {};
+		~midi_client() {};
+		
 		int init(device_t* dev);
 		int get(port::cmd_t* cmd);
 		int put(port::cmd_t&& cmd);

@@ -2,7 +2,7 @@
 #define PORT_TSAFEQ_HPP__
 
 #include <mutex>
-#include <queue>
+#include <deque>
 #include <semaphore.h>
 #include <stdlib.h>
 #include <assert.h>
@@ -14,64 +14,110 @@ namespace port {
 	public:
 		signaling_t(int p = 0)
 		{
-			static_assert(false, "");
+			assert(false);
 		}
 
 		~signaling_t() {}
-		
+
 		int post()
 		{
-			static_assert(false, "");
+			assert(false);
 			return 0;
 		}
 
 		int wait()
 		{
-			static_assert(false, "");
+			assert(false);
 			return 0;
 		}
 	};
 
-	template <> signaling_t< sem_t >::signaling_t(int p)
-	{
-		int err =sem_init(&sig_obj_, 0, p);
-		if (err) {
-			perror("sem_init filed");
-			assert(false);
+	template <> class signaling_t< sem_t > {
+		sem_t sig_obj_;
+	public:
+		signaling_t(int p=0)
+		{
+			int err = sem_init(&sig_obj_, 0, p);
+			if (err) {
+				perror("sem_init filed");
+				assert(false);
+			}
 		}
-	}
 	
-	template <> signaling_t< sem_t >::~signaling_t()
-	{
-		sem_destroy(&sig_obj_);
-	}
-
-	template <> int signaling_t< sem_t >::post()
-	{
-		int err = sem_post(&sig_obj_);
-		if (err) {
-			perror("sem_post filed");
-			assert(false);
+		~signaling_t()
+		{
+			sem_destroy(&sig_obj_);
 		}
-		return err;
-	}
 
-	template <> int signaling_t< sem_t >::wait()
-	{
-		int err = sem_wait(&sig_obj_);
-		if (err) {
-			perror("sem_wait filed");
-			assert(false);
+		int post()
+		{
+			int err = sem_post(&sig_obj_);
+			if (err) {
+				perror("sem_post filed");
+				assert(false);
+			}
+			return err;
 		}
-		return err;
-	}
+		
+		int wait()
+		{
+			int err = sem_wait(&sig_obj_);
+			if (err) {
+				perror("sem_wait filed");
+				assert(false);
+			}
+			return err;
+		}
+	};
+
+	template <> class signaling_t< sem_t* > {
+		sem_t* sig_obj_;
+	public:
+		signaling_t(int p=0)
+		{
+			sem_unlink("dead");
+			sig_obj_ = sem_open("dead", O_CREAT, 0, p);
+			if (!sig_obj_) {
+				perror("sem_open filed");
+				assert(false);
+			}
+		}
+	
+		~signaling_t()
+		{
+			sem_close(sig_obj_);
+			sem_unlink("dead");
+		}
+
+		int post()
+		{
+			int err = sem_post(sig_obj_);
+			if (err) {
+				perror("sem_post filed");
+				assert(false);
+			}
+			return err;
+		}
+		
+		int wait()
+		{
+			int err = sem_wait(sig_obj_);
+			if (err) {
+				perror("sem_wait filed");
+				assert(false);
+			}
+			return err;
+		}
+	};
 
 	template < typename L, typename S, typename E > class tsafeque_t {
 		L lock_;
 		signaling_t< S > wait_;
-		std::queue< E > q_;
+		std::deque< E > q_;
 	public:
-
+		tsafeque_t() {}
+		~tsafeque_t() {}
+		
 		size_t size()
 		{
 			std::lock_guard< L > lock(lock_);
@@ -79,23 +125,13 @@ namespace port {
 		}
 
 		template < typename L1, typename S1, typename E1 > struct wait_func {
-			E1 operator()()
-			{
-				static_assert(false, "need specialise");
-			}
+			E1 operator()(tsafeque_t* t) { assert(false); }
 		};
 
 		template < typename L1, typename S1, typename E1 > struct send_func {
-			void operator ()(E1 s)
-			{
-				static_assert(false, "need specialise");
-			}
+			void operator ()(tsafeque_t* t, E1 s) { assert(false); }
 		};
 		
-		void send(E s) { send_func< L, S, E >()(std::move(this, s)); }
-		E wait() { return wait_func< L, S, E >()(this); }
-
-
 		template < typename E1 > struct wait_func< std::mutex, sem_t, E1 > {
 			E operator ()(tsafeque_t* t)
 			{
@@ -111,13 +147,33 @@ namespace port {
 				t->wait_.post();
 			}
 		};
+		
+		template < typename E1 > struct wait_func< std::mutex, sem_t*, E1 > {
+			E operator ()(tsafeque_t* t)
+			{
+				t->wait_.wait();
+				return t->pop();
+			}
+		};
 
+		template < typename E1 > struct send_func< std::mutex, sem_t*, E1 > {
+			void operator ()(tsafeque_t* t, E1 e)
+			{
+				t->push(std::move(e));
+				t->wait_.post();
+			}
+		};
+
+		void send(E s) { send_func< L, S, E >()(this, std::move(s)); }
+		E wait() { return wait_func< L, S, E >()(this); }
 		
 	protected:
 		E pop()
 		{
 			std::lock_guard< L > lock(lock_);
-			return q_.pop_front();
+			E e = std::move(q_.front());
+			q_.pop_front();
+			return e;
 		}
 
 		void push(E&& e)
@@ -126,13 +182,8 @@ namespace port {
 			q_.push_back(e);
 		}
 
-
 	};
 		
-	template < typename E > class tsafeque_t < std::mutex, sem_t, E > {
-	public:
-
-	};
 }
 
 #endif

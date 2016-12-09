@@ -1,7 +1,9 @@
+#include <string>
+#include <stdio.h>
 #include "led.hpp"
 
 namespace rpi {
-led_device_t* init_led(int mode, int idx);
+led_device_t* init_led(int mode, int idx)
 {
 	auto d = new led_device_t;
 	d->mode = mode;
