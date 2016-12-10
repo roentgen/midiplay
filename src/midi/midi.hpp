@@ -2,6 +2,7 @@
 #define MIDI_MIDI_HPP__
 
 #include <stdint.h>
+#include <string>
 #include <atomic>
 #include "port/cmdq.hpp"
 #if defined(__linux__)
@@ -35,7 +36,7 @@ namespace midi {
 		int put(port::cmd_t&& cmd);
 	};
 	
-	device_t* init_midi();
+	device_t* init_midi(const std::string& device);
 	void final_midi(device_t* dev);
 
 	int ch_read(device_t* dev, uint8_t* ch);

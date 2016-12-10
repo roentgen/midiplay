@@ -1,5 +1,4 @@
 # test conf file
 
-patch:0 pcm:random1MB.dat seq:test.seq bpm:128.1
-patch:1 pcm:test.pcm seq:test.seq bpm:128.1
+patch:40 pcm:Hello44.1k.wav seq:test.seq bpm:128.1
 patch:2 pcm:test2.pcm seq:test2.seq bpm:170.9

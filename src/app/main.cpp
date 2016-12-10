@@ -94,9 +94,12 @@ midi::device_t* midi_ = nullptr;
 rpi::led_device_t* led_ = nullptr;
 std::list< node_t > ents;
 
-node_t lookup(int pg, int patch)
+std::pair< bool, node_t > lookup(int pg, int patch)
 {
-	return *std::find_if(ents.begin(), ents.end(), [pg,patch](const node_t& t) { return t.prog == pg && t.patch == patch; });
+	auto it = std::find_if(ents.begin(), ents.end(), [pg,patch](const node_t& t) { return t.prog == pg && t.patch == patch; });
+	if (it == ents.end())
+		return std::make_pair(false, node_t());
+	return std::make_pair(true, *it);
 }
 
 void ready(rpi::led_device_t* l)
@@ -131,8 +134,11 @@ struct riff_wav_data_t {
 #pragma pack()
 
 /* 16bits stereo 48KHz で 0.5sec ぶんバッファがある場合、読み込む bytes は最小で (24000 * 4) 必要 */
-#define PLAY_CHUNK ((int)((500.0/1000.0) * 48000))
-#define LOAD_CHUNK (24000)
+#define SAMPLERATE (44100)
+//#define PLAY_CHUNK ((int)((500.0/1000.0) * (SAMPLERATE)))
+//#define LOAD_CHUNK ((int)((500.0/1000.0) * (SAMPLERATE)))
+#define PLAY_CHUNK ((int)((500.0/1000.0) * (SAMPLERATE)))
+#define LOAD_CHUNK ((int)(10 * (SAMPLERATE)))
 /* 16M = 16bit/stereo 48KHz で 96 sec くらい */
 //#define LOAD_CHUNKSIZE (16*1024*1024)
 
@@ -207,7 +213,14 @@ void command_func(std::string basepath)
 			switch (cmd.tag) {
 			case CHANGE_PROG:
 			{
-				printf("CHANGE PROG\n");
+				printf("CHANGE_PROG: %d\n", cmd.data0);
+				int patch = cmd.data0;
+				auto found = lookup(0, patch);
+				if (!found.first) {
+					/* 見つからなければ完全に無視 */
+					break;
+				}
+				auto cur = found.second;
 				loadcomplete = false;
 				if (loading) {
 					loading = false;
@@ -216,8 +229,6 @@ void command_func(std::string basepath)
 				if (fp) {
 					fclose(fp);
 				}
-				int patch = cmd.data0;
-				node_t cur = lookup(0, patch);
 				
 				load_pcm(cur);
 				std::string pcmfilepath = basepath + "/" + cur.pcmfile;
@@ -238,23 +249,28 @@ void command_func(std::string basepath)
 				state = 1;
 				break;
 			}
-			case START:
-				if (state == 1) {
-					state = 2;
-					// playback
-					playpos = 0;
-					playing = true;
-					play_thr = std::move(std::thread(playfunc, pcm_buffer));
-				}
-				break;
-			case STOP:
-				if (state == 2) {
-					// stop
-					playing = false;
-					play_thr.join();
-					loading = false;
-					pcm_load_thr.join();
-					state = 1;
+			case TAP_CTRL:
+				printf("TAP_CTRL: %d\n", cmd.data0);
+				if (cmd.data0 == 0x1) {
+					/*  Ctrl1 なら Start/Pause の toggle */ 
+					if (state == 1) {
+						printf("! START Playing\n");
+						
+						state = 2;
+						// playback
+						playpos = (sizeof(riff_wav_data_t) + sizeof(riff_wav_format_t)) >> 1;
+						playing = true;
+						play_thr = std::move(std::thread(playfunc, pcm_buffer));
+					}
+					else if (state == 2) {
+						printf("! STOP Playing\n");
+						// stop
+						playing = false;
+						play_thr.join();
+						loading = false;
+						pcm_load_thr.join();
+						state = 1;
+					}
 				}
 				break;
 			default:
@@ -268,17 +284,84 @@ void command_func(std::string basepath)
 	free(pcm_buffer);
 }
 
+int dev_probe(std::string& pcmhw, std::string& midihw)
+{
+	FILE* cards = fopen("/proc/asound/cards", "r");
+	if (!cards) {
+		perror("/proc/asound/cards");
+		return -1;
+	}
+
+	std::vector< std::pair< std::string, std::string > > lst;
+	lst.reserve(16);
+	char buf[1024];
+	while (fgets(buf, 1023, cards)) {
+		std::cmatch l;
+		if (std::regex_search(buf, l, std::regex(R"(([0-9]+)\s*\[(\S+))"))) {
+			if (l.size() > 2) {
+				std::string key = l[1].str();
+				std::string value = l[2].str();
+				
+				printf("probed [index:%s name:[%s]]\n", key.c_str(), value.c_str());
+				lst.push_back(std::make_pair(key, value));
+			}
+		}
+	}
+	fclose(cards);
+
+	/* dedicated な rawmidi があれば優先する. なければ UA25EX のを使う */
+	int midi = -1;
+	for (int i = 0; i < lst.size() ; ++ i) {
+		if (lst[i].second == "UMONE") {
+			midi = i;
+			/* なぜか知らないが rawmidi は hw:NAME とか hw:2 とかでないとダメ */
+			midihw = "hw:UMONE";
+			break;
+		}
+	}
+	
+	int pcm = -1;
+	for (int i = 0; i < lst.size() ; ++ i) {
+		if (lst[i].second == "UA25EX") {
+			pcm = i;
+			/* pcm は plughw:NAME とか、 plughw でないとダメ */
+			pcmhw = "plughw:UA25EX";
+			if (midi < 0) {
+				midihw = "hw:UA25EX";
+				midi = i;
+			}
+			break;
+		}
+	}
+
+	return !(pcm < 0 || midi < 0) ;
+}
+
 int main(int argc, char** argv)
 {
 #if defined(__linux__)
 	std::string basepath(argv[2]);
-	std::string devicepath = "default";
+	std::string midihw;
+	std::string pcmhw;
+	if (argc < 5) {
+		if (!dev_probe(pcmhw, midihw)) {
+			printf("failed to probe\n");
+			exit(-1);
+		}
+	}
+	else {
+		pcmhw = std::string(argv[3]);
+		midihw = std::string(argv[4]);
+	}
+	printf("PCM device:%s\n", pcmhw.c_str());
+	printf("RAW MIDI device:%s\n", midihw.c_str());
 #else
 	std::string basepath(argv[2]);
 	std::string devicepath(argv[2]);
+	std::string mididevicepath = "default";
 #endif
-	snd_ = snd::init_sound(devicepath);
-	midi_ = midi::init_midi();
+	snd_ = snd::init_sound(pcmhw, 500000, SAMPLERATE);
+	midi_ = midi::init_midi(midihw);
 	led_ = rpi::init_led(rpi::LED_MODE_ONESHOT, 0);
 	
 	printf("load config:%s\n", argv[1]);

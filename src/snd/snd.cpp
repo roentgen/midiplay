@@ -5,7 +5,7 @@
 #include <fcntl.h>
 
 namespace snd {
-device_t* init_sound(const std::string& device)
+device_t* init_sound(const std::string& device, int latency, int samplerate, int bits, int ch)
 {
 #if defined(__linux__)
 	int err;
@@ -17,7 +17,7 @@ device_t* init_sound(const std::string& device)
 		return nullptr;
 	}
 
-	err = snd_pcm_set_params(hdl, SND_PCM_FORMAT_U16, SND_PCM_ACCESS_RW_INTERLEAVED, 2 /* ch */, 48000, 0 /* soft resample: 0=deny 1=allow */, 500000 /* required latency in us, バッファサイズと同じ？ */);
+	err = snd_pcm_set_params(hdl, SND_PCM_FORMAT_U16, SND_PCM_ACCESS_RW_INTERLEAVED, ch /* ch */, samplerate, 0 /* soft resample: 0=deny 1=allow */, latency /* required latency in us, バッファサイズと同じ？ */);
 	if (err < 0) {
 		printf("Playback snd device setup error:%s\n", snd_strerror(err));
 		assert(false);
