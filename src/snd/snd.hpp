@@ -17,6 +17,7 @@ namespace snd {
 	};
 	device_t* init_sound(const std::string& device, int latency, int samplerate = 44100, int bits = 16, int ch = 2);
 	int send_pcm(device_t* , const uint16_t* pcm, int cnt);
+	void reset_position(device_t*);
 	void stop_sound(device_t*);
 	void final_sound(device_t* dev);
 }

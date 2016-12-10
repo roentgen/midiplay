@@ -17,13 +17,21 @@ device_t* init_sound(const std::string& device, int latency, int samplerate, int
 		return nullptr;
 	}
 
-	err = snd_pcm_set_params(hdl, SND_PCM_FORMAT_U16, SND_PCM_ACCESS_RW_INTERLEAVED, ch /* ch */, samplerate, 0 /* soft resample: 0=deny 1=allow */, latency /* required latency in us, バッファサイズと同じ？ */);
+	err = snd_pcm_set_params(hdl, SND_PCM_FORMAT_S16, SND_PCM_ACCESS_RW_INTERLEAVED, ch /* ch */, samplerate, 0 /* soft resample: 0=deny 1=allow */, latency /* required latency in us, バッファサイズと同じ？ */);
 	if (err < 0) {
 		printf("Playback snd device setup error:%s\n", snd_strerror(err));
 		assert(false);
 		return nullptr;
 	}
-	
+
+	/* 
+	   Period は一回の割り込みで処理可能なサンプル数: 551 なら 16bit stereo 44,1k の場合 2204.
+	   Buffer が 50msec なら同条件で 2205 frames になるので、 4 回割り込みが起きる間 1 sample は余るが、 FIFO なので問題はない.
+	 */
+	snd_pcm_uframes_t buff = 0, period = 0;
+	err = snd_pcm_get_params(hdl, &buff, &period);
+	printf("buffer:%d period:%d\n", buff, period);
+
 	auto dev = new device_t;
 	dev->hdl = hdl;
 #else
@@ -59,10 +67,18 @@ int send_pcm(device_t* dev, const uint16_t* pcm, int cnt)
 	return 0;
 }
 
+
+void reset_position(device_t* dev)
+{
+	snd_pcm_reset(dev->hdl);
+	snd_pcm_hwsync(dev->hdl);
+	snd_pcm_prepare(dev->hdl);
+}
+
 void stop_sound(device_t* dev)
 {
 #if defined(__linux__)
-	/* nothing to do */
+	snd_pcm_drop(dev->hdl);
 #else
 	close(dev->fd);
 	dev->fd = -1;

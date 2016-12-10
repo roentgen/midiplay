@@ -133,14 +133,13 @@ struct riff_wav_data_t {
 };
 #pragma pack()
 
+#define LATENCY (50) // in ms
 /* 16bits stereo 48KHz で 0.5sec ぶんバッファがある場合、読み込む bytes は最小で (24000 * 4) 必要 */
 #define SAMPLERATE (44100)
 //#define PLAY_CHUNK ((int)((500.0/1000.0) * (SAMPLERATE)))
 //#define LOAD_CHUNK ((int)((500.0/1000.0) * (SAMPLERATE)))
-#define PLAY_CHUNK ((int)((500.0/1000.0) * (SAMPLERATE)))
+#define PLAY_CHUNK ((int)(((double)LATENCY/1000.0) * (SAMPLERATE)))
 #define LOAD_CHUNK ((int)(10 * (SAMPLERATE)))
-/* 16M = 16bit/stereo 48KHz で 96 sec くらい */
-//#define LOAD_CHUNKSIZE (16*1024*1024)
 
 constexpr size_t samples_to_bytes(int chunk)
 {
@@ -148,7 +147,7 @@ constexpr size_t samples_to_bytes(int chunk)
 }
 
 
-void command_func(std::string basepath)
+void command_func(const std::string& basepath, const std::string& midihw, const std::string& pcmhw)
 {
 	using namespace port;
 	midi::midi_client cl;
@@ -181,6 +180,7 @@ void command_func(std::string basepath)
 	};
 
 	auto playfunc = [&](const uint16_t* buffer) {
+		snd::reset_position(snd_);
 		while (playing) {
 			if (playpos < pos) {
 				/* **絶対に** ノイズにならないよう、再生チャンクサイズぶんがバッファされているように確認する */
@@ -197,12 +197,13 @@ void command_func(std::string basepath)
 				break; 
 			}
 #if !defined(__linux__)
-			usleep(500000 - 10000);
+			//usleep((LATENCY * 1000) - 10000);
 #endif
 		}
 		printf("playback end at:%d (playing:%d)\n", playpos.load(), playing.load());
 		snd::stop_sound(snd_);
 	};
+
 	
 	std::thread pcm_load_thr;
 	std::thread play_thr;
@@ -216,8 +217,8 @@ void command_func(std::string basepath)
 				printf("CHANGE_PROG: %d\n", cmd.data0);
 				int patch = cmd.data0;
 				auto found = lookup(0, patch);
-				if (!found.first) {
-					/* 見つからなければ完全に無視 */
+				if (state == 2 || !found.first) {
+					/* 再生中か、 見つからなければ完全に無視 */
 					break;
 				}
 				auto cur = found.second;
@@ -235,6 +236,7 @@ void command_func(std::string basepath)
 				printf("patch:%d load file:%s\n", patch, pcmfilepath.c_str());
 				fp = fopen(pcmfilepath.c_str(), "rb");
 				if (fp) {
+					pos = 0;
 					loadfunc(fp);
 					loading = true;
 					pcm_load_thr = std::move(std::thread(loadfunc, fp));
@@ -266,9 +268,11 @@ void command_func(std::string basepath)
 						printf("! STOP Playing\n");
 						// stop
 						playing = false;
-						play_thr.join();
+						if (play_thr.joinable())
+							play_thr.join();
 						loading = false;
-						pcm_load_thr.join();
+						if (pcm_load_thr.joinable()) 
+							pcm_load_thr.join();
 						state = 1;
 					}
 				}
@@ -337,6 +341,7 @@ int dev_probe(std::string& pcmhw, std::string& midihw)
 	return !(pcm < 0 || midi < 0) ;
 }
 
+
 int main(int argc, char** argv)
 {
 #if defined(__linux__)
@@ -360,7 +365,9 @@ int main(int argc, char** argv)
 	std::string devicepath(argv[2]);
 	std::string mididevicepath = "default";
 #endif
-	snd_ = snd::init_sound(pcmhw, 500000, SAMPLERATE);
+	snd_ = snd::init_sound(pcmhw, LATENCY * 1000, SAMPLERATE);
+	//snd::final_sound(snd_);
+	
 	midi_ = midi::init_midi(midihw);
 	led_ = rpi::init_led(rpi::LED_MODE_ONESHOT, 0);
 	
@@ -372,7 +379,7 @@ int main(int argc, char** argv)
 	for (auto& e : ents) {
 	}
 
-	std::thread comthr([basepath](){command_func(basepath);});
+	std::thread comthr([=](){command_func(basepath, midihw, pcmhw);});
 	comthr.join();
 	
 	return 0;
