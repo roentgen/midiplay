@@ -159,6 +159,7 @@ void command_func(const std::string& basepath, const std::string& midihw, const 
 	volatile std::atomic< bool > loadcomplete(false);
 	volatile std::atomic< bool > playing(false);
 	volatile std::atomic< int > pos(0);
+	volatile std::atomic< int > endpos(0); /* data セクションの終端 */
 	volatile std::atomic< int > playpos(0);
 	/* FIXME: FIFO にしよう */
 	uint16_t* pcm_buffer = (uint16_t*)malloc(128*1024*1024);
@@ -182,10 +183,10 @@ void command_func(const std::string& basepath, const std::string& midihw, const 
 	auto playfunc = [&](const uint16_t* buffer) {
 		snd::reset_position(snd_);
 		while (playing) {
-			if (playpos < pos) {
+			if (playpos < endpos) {
 				/* **絶対に** ノイズにならないよう、再生チャンクサイズぶんがバッファされているように確認する */
-				int cnt = std::min(pos - playpos, PLAY_CHUNK);
-				printf("send: playpos:%d cnt:%d pos:%d %d\n", playpos.load(), cnt, pos.load(), PLAY_CHUNK);
+				int cnt = std::min(endpos - playpos, PLAY_CHUNK);
+				printf("send: playpos:%d cnt:%d pos:%d %d\n", playpos.load(), cnt, endpos.load(), PLAY_CHUNK);
 				snd::send_pcm(snd_, buffer + playpos, cnt);
 				playpos += (cnt << 1); // stereo
 			}
@@ -237,6 +238,7 @@ void command_func(const std::string& basepath, const std::string& midihw, const 
 				fp = fopen(pcmfilepath.c_str(), "rb");
 				if (fp) {
 					pos = 0;
+					endpos = 0;
 					loadfunc(fp);
 					loading = true;
 					pcm_load_thr = std::move(std::thread(loadfunc, fp));
@@ -260,7 +262,11 @@ void command_func(const std::string& basepath, const std::string& midihw, const 
 						
 						state = 2;
 						// playback
-						playpos = (sizeof(riff_wav_data_t) + sizeof(riff_wav_format_t)) >> 1;
+						playpos = (sizeof(riff_wav_header_t) + sizeof(riff_wav_data_t) + sizeof(riff_wav_format_t)) >> 1;
+						uint8_t* addr = reinterpret_cast< uint8_t* >(pcm_buffer);
+					    uint32_t sz = reinterpret_cast< riff_wav_data_t* >(addr + sizeof(riff_wav_header_t) + sizeof(riff_wav_format_t))->hd.size;
+						printf("sizeof(riff_wav_format_t):%d sz:%d (0x%x) playpos:%d\n", sizeof(riff_wav_format_t), sz, sz, playpos.load());
+						endpos = playpos + (sz >> 1);
 						playing = true;
 						play_thr = std::move(std::thread(playfunc, pcm_buffer));
 					}
